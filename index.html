@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#030304" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="description" content="TradeDesk — Professional F&O trading analytics for Indian traders" />
+    <title>TradeDesk — F&O Analytics</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Outfit:wght@300;400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+    <!-- Supabase client from CDN (used by window.__supabase init below) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
+    <script>
+      // ── Supabase initialisation ────────────────────────────────────────────
+      // These values are your PUBLIC anon key + project URL.
+      // They are safe to include in frontend code — RLS policies in Supabase
+      // protect your data server-side regardless.
+      var SUPABASE_URL     = "https://xqpqclqhhwxbmbiwphtl.supabase.co";
+      var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhxcHFjbHFoaHd4Ym1iaXdwaHRsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1MzkzNzMsImV4cCI6MjA4OTExNTM3M30.YDKqzqI-7CQtm7j56qIFvUn7V50p-Fv_0FfY3rmiQE0";
+
+      try {
+        window.__supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+          auth: {
+            persistSession: true,
+            autoRefreshToken: true,
+            detectSessionInUrl: true,
+          }
+        });
+        console.log("[TradeDesk] Supabase connected ✓");
+      } catch(e) {
+        console.error("[TradeDesk] Supabase init failed:", e.message);
+        window.__supabase = null;
+      }
+
+      // ── Admin bypass ───────────────────────────────────────────────────────
+      // Any user whose email matches this gets Pro access in the UI.
+      // Change to your real email before deploying.
+      window.__ADMIN_EMAIL = "190030187cse@gmail.com";
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
