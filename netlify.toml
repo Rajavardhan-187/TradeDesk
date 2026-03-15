@@ -1,5 +1,5 @@
 [build]
-  command = "node -e \"const fs=require('fs');const path=require('path');if(!fs.existsSync('src/App.jsx')&&fs.existsSync('App.jsx')){fs.mkdirSync('src',{recursive:true});fs.copyFileSync('App.jsx','src/App.jsx');console.log('Copied App.jsx to src/');}if(!fs.existsSync('src/main.jsx')&&fs.existsSync('main.jsx')){fs.copyFileSync('main.jsx','src/main.jsx');console.log('Copied main.jsx to src/');}\" && npm install && npm run build"
+  command = "npm install && npx --yes vite build"
   publish = "dist"
   functions = "netlify/functions"
 
