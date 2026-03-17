@@ -3358,40 +3358,84 @@ const AuthPage = ({ supabase }) => {
    (trades, tags, notes) up to Supabase so it persists across devices.
    Subsequent changes sync incrementally via the save handlers.
 ════════════════════════════════════════════════════════════════ */
+// ── Save trades to Supabase (called on every import) ──────────────────────
+const saveTradestoSupabase = async (supabase, userId, trades, charges, fileName) => {
+  if (!supabase || !userId) return;
+  try {
+    // Use upsert with user_id conflict — one row per user (latest import wins)
+    await supabase.from("trade_imports").upsert({
+      user_id: userId,
+      file_name: fileName || "import_" + new Date().toISOString().slice(0,10),
+      trades: trades,
+      charges: charges || 0,
+      imported_at: new Date().toISOString(),
+    }, { onConflict: "user_id" });
+    console.log("[TradeDesk] Trades saved to Supabase ✓");
+  } catch(e) {
+    console.warn("[TradeDesk] Trade save failed:", e.message);
+  }
+};
+
+// ── Save tags+notes to Supabase (called on every change) ───────────────────
+const saveSettingsToSupabase = async (supabase, userId, tags, notes) => {
+  if (!supabase || !userId) return;
+  try {
+    await supabase.from("user_settings").upsert({
+      user_id: userId,
+      tags: tags || {},
+      notes: notes || {},
+      preferences: {},
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "user_id" });
+  } catch(e) {
+    console.warn("[TradeDesk] Settings save failed:", e.message);
+  }
+};
+
+// ── Load user data from Supabase after login ───────────────────────────────
+const loadUserDataFromSupabase = async (supabase, userId) => {
+  if (!supabase || !userId) return null;
+  try {
+    const [importRes, settingsRes] = await Promise.all([
+      supabase.from("trade_imports").select("trades,charges,file_name,imported_at")
+        .eq("user_id", userId).order("imported_at", {ascending:false}).limit(1).single(),
+      supabase.from("user_settings").select("tags,notes")
+        .eq("user_id", userId).single(),
+    ]);
+    return {
+      trades: importRes.data?.trades || null,
+      charges: importRes.data?.charges || 0,
+      fileName: importRes.data?.file_name || null,
+      tags: settingsRes.data?.tags || {},
+      notes: settingsRes.data?.notes || {},
+    };
+  } catch(e) {
+    console.warn("[TradeDesk] Load from Supabase failed:", e.message);
+    return null;
+  }
+};
+
+// ── Legacy: push localStorage data to Supabase on first login ─────────────
 const syncLocalDataToSupabase = async (supabase, userId) => {
   try {
-    // Push trades if local data exists and Supabase row doesn't yet
     const localTrades = localStorage.getItem("td_trades");
     const localTags   = localStorage.getItem("td_tags");
     const localNotes  = localStorage.getItem("td_notes");
     const localCharges= localStorage.getItem("td_charges");
-
     if (localTrades) {
-      const { data: existing } = await supabase
-        .from("trade_imports")
-        .select("id")
-        .eq("user_id", userId)
-        .limit(1);
+      const { data: existing } = await supabase.from("trade_imports")
+        .select("id").eq("user_id", userId).limit(1);
       if (!existing || existing.length === 0) {
-        await supabase.from("trade_imports").upsert({
-          user_id: userId,
-          file_name: "local_import",
-          trades: JSON.parse(localTrades),
-          charges: parseFloat(localCharges || "0"),
-        });
+        await saveTradestoSupabase(supabase, userId,
+          JSON.parse(localTrades), parseFloat(localCharges||"0"), "local_import");
       }
     }
     if (localTags || localNotes) {
-      await supabase.from("user_settings").upsert({
-        user_id: userId,
-        tags:  JSON.parse(localTags  || "{}"),
-        notes: JSON.parse(localNotes || "{}"),
-        preferences: {},
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id" });
+      await saveSettingsToSupabase(supabase, userId,
+        JSON.parse(localTags||"{}"), JSON.parse(localNotes||"{}"));
     }
   } catch(e) {
-    console.warn("[TradeDesk] Supabase sync skipped:", e.message);
+    console.warn("[TradeDesk] Sync skipped:", e.message);
   }
 };
 
@@ -3459,7 +3503,28 @@ export default function App() {
             .from("profiles").select("*").eq("id", u.id).single();
           setUserProfile(prof);
         } catch(e) {}
-        syncLocalDataToSupabase(supabase, u.id);
+        // Load saved trades + settings from Supabase
+        const saved = await loadUserDataFromSupabase(supabase, u.id);
+        if (saved?.trades?.length) {
+          const processed = processTrades(saved.trades);
+          setTrades(processed);
+          setUsingReal(true);
+          if (saved.charges) setTotalChargesRaw(saved.charges);
+          localStorage.setItem("td_trades", JSON.stringify(processed));
+          localStorage.setItem("td_using_real", "1");
+          console.log("[TradeDesk] Loaded " + processed.length + " trades from Supabase ✓");
+        } else {
+          // No cloud data — push any local data up
+          syncLocalDataToSupabase(supabase, u.id);
+        }
+        if (saved?.tags && Object.keys(saved.tags).length) {
+          setTagsRaw(saved.tags);
+          localStorage.setItem("td_tags", JSON.stringify(saved.tags));
+        }
+        if (saved?.notes && Object.keys(saved.notes).length) {
+          setNotesRaw(saved.notes);
+          localStorage.setItem("td_notes", JSON.stringify(saved.notes));
+        }
       }
       finish(u);
     }).catch(() => finish());
@@ -3511,20 +3576,24 @@ export default function App() {
   });
   // Persist helpers
   const setTotalCharges=(v)=>{setTotalChargesRaw(v);localStorage.setItem("td_charges",String(v));};
-  const setTags=(fn)=>setTagsRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;localStorage.setItem("td_tags",JSON.stringify(next));return next;});
-  const setNotes=(fn)=>setNotesRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;localStorage.setItem("td_notes",JSON.stringify(next));return next;});
+  const setTags=(fn)=>setTagsRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;localStorage.setItem("td_tags",JSON.stringify(next));if(supabase&&user)saveSettingsToSupabase(supabase,user.id,next,notes);return next;});
+  const setNotes=(fn)=>setNotesRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;localStorage.setItem("td_notes",JSON.stringify(next));if(supabase&&user)saveSettingsToSupabase(supabase,user.id,tags,next);return next;});
 
   const showToast=(msg,type="success")=>{setToast({msg,type});setTimeout(()=>setToast(null),2800);};
 
-  const onImport=useCallback((newTrades, charges=0)=>{
+  const onImport=useCallback((newTrades, charges=0, fileName="")=>{
     setTrades(newTrades);
     setUsingReal(true);
     setTotalCharges(charges);
     localStorage.setItem("td_trades",JSON.stringify(newTrades));
     localStorage.setItem("td_using_real","1");
+    // Save to Supabase if logged in
+    if (supabase && user) {
+      saveTradestoSupabase(supabase, user.id, newTrades, charges, fileName);
+    }
     setView("dashboard");
     showToast("✓ "+newTrades.length+" trades imported"+(charges>0?" · ₹"+charges.toLocaleString("en-IN")+" charges detected":""));
-  },[]);
+  },[supabase, user]);
 
   const clearData=()=>{
     ["td_trades","td_using_real","td_tags","td_notes","td_charges"].forEach(k=>localStorage.removeItem(k));
