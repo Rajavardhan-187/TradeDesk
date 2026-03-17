@@ -3459,7 +3459,45 @@ export default function App() {
     };
   }, [supabase]);
 
-  // ── ALL remaining hooks MUST come before any conditional return (React rules) ──
+  // Auth loading screen
+  if (authLoading) return (
+    <>
+      <G/>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"var(--bg)",gap:14,flexDirection:"column"}}>
+        <div style={{width:40,height:40,borderRadius:"50%",border:"2px solid var(--b2)",borderTopColor:"var(--acc)",animation:"spin .8s linear infinite"}}/>
+        <div style={{fontSize:11,color:"var(--t3)",letterSpacing:2,textTransform:"uppercase",fontWeight:600}}>Loading TradeDesk</div>
+      </div>
+    </>
+  );
+
+  // Gate: show auth page when Supabase is configured and user is not signed in
+  if (supabase && !user) return (
+    <>
+      <G/>
+      <AuthPage supabase={supabase}/>
+    </>
+  );
+
+  // ── ADMIN BYPASS ────────────────────────────────────────────────
+  // Admin account: any user with email matching VITE_ADMIN_EMAIL env var
+  // gets access to all features regardless of subscription plan.
+  // Set VITE_ADMIN_EMAIL=your@email.com in your .env file.
+  // ADMIN_EMAIL: set window.__ADMIN_EMAIL before loading app in prod, or hardcode here for local testing
+  const ADMIN_EMAIL = (typeof window !== "undefined" && window.__ADMIN_EMAIL) || "";
+  const isAdmin = user?.email && ADMIN_EMAIL && user.email === ADMIN_EMAIL;
+
+  const userPlan = isAdmin ? "pro" : (userProfile?.plan || "free");
+  const canUseAI = isAdmin || userPlan === "basic" || userPlan === "pro";
+  const userName = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Demo";
+
+  const handleSignOut = async () => {
+    try{ if(supabase) await supabase.auth.signOut(); }catch(e){}
+    showToast("Signed out");
+    window.location.reload();
+  };
+  // ══════════════════════════════════════════════════════════════
+  // ────────────────────────────────────────────────────────────
+
   const [view,setView]=useState("dashboard");
   const [selStock,setSelStock]=useState(null);
   const [analyzeStock,setAnalyzeStock]=useState(null);
@@ -3474,14 +3512,17 @@ export default function App() {
   });
   const [tags,setTagsRaw]=useState(()=>{try{return JSON.parse(localStorage.getItem("td_tags")||"{}");}catch(e){return {};}});
   const [notes,setNotesRaw]=useState(()=>{try{return JSON.parse(localStorage.getItem("td_notes")||"{}");}catch(e){return {};}});
+  // Local dev: key from localStorage. Production: proxy handles it, key not needed
   const [userGroqKey,setUserGroqKeyRaw]=useState(()=>localStorage.getItem("td_groq_key")||"");
   const setGroqKey=(k)=>{setUserGroqKeyRaw(k);k?localStorage.setItem("td_groq_key",k):localStorage.removeItem("td_groq_key");};
+  // groqKey: used directly when IS_LOCAL, ignored on production (proxy handles it)
   const groqKey = IS_LOCAL ? (userGroqKey||"") : "proxy";
   const [aiProvider,setAiProvider]=useState("groq");
   const [toast,setToast]=useState(null);
   const [totalCharges,setTotalChargesRaw]=useState(()=>{
     try{return parseFloat(localStorage.getItem("td_charges")||"0");}catch(e){return 0;}
   });
+
   // Persist helpers
   const setTotalCharges=(v)=>{setTotalChargesRaw(v);localStorage.setItem("td_charges",String(v));};
   const setTags=(fn)=>setTagsRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;localStorage.setItem("td_tags",JSON.stringify(next));return next;});
@@ -3559,40 +3600,6 @@ export default function App() {
   const overall=useMemo(()=>buildOverall(trades, totalCharges),[trades, totalCharges]);
   const stockStats=useMemo(()=>buildStockStats(trades.filter(t=>!t.open)),[trades]);
   const equityCurve=useMemo(()=>buildEquityCurve(trades),[trades]);
-
-  // ── Now safe to do conditional returns — all hooks declared above ──
-
-  if (authLoading) return (
-    <>
-      <G/>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"var(--bg)",gap:14,flexDirection:"column"}}>
-        <div style={{width:40,height:40,borderRadius:"50%",border:"2px solid var(--b2)",borderTopColor:"var(--acc)",animation:"spin .8s linear infinite"}}/>
-        <div style={{fontSize:11,color:"var(--t3)",letterSpacing:2,textTransform:"uppercase",fontWeight:600}}>Loading TradeDesk</div>
-      </div>
-    </>
-  );
-
-  // Gate: show auth page when Supabase is configured and user is not signed in
-  if (supabase && !user) return (
-    <>
-      <G/>
-      <AuthPage supabase={supabase}/>
-    </>
-  );
-
-  // ── Derived values (safe after hooks + conditional returns) ──
-  const ADMIN_EMAIL = (typeof window !== "undefined" && window.__ADMIN_EMAIL) || "";
-  const isAdmin = user?.email && ADMIN_EMAIL && user.email === ADMIN_EMAIL;
-  const userPlan = isAdmin ? "pro" : (userProfile?.plan || "free");
-  const canUseAI = isAdmin || userPlan === "basic" || userPlan === "pro";
-  const userName = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Demo";
-
-  const handleSignOut = async () => {
-    try{ if(supabase) await supabase.auth.signOut(); }catch(e){}
-    showToast("Signed out");
-    window.location.reload();
-  };
-
 
   const NAV=[
     {id:"dashboard",label:"Dashboard",icon:"dash",key:"1"},
