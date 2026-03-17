@@ -3260,7 +3260,7 @@ const AuthPage = ({ supabase }) => {
         if (password.length < 8) throw new Error("Password must be at least 8 characters");
         const { error } = await supabase.auth.signUp({ email, password, options: { data: { full_name: name.trim() } } });
         if (error) throw error;
-        setSuccess("Check your email to confirm your account, then sign in.");
+        setSuccess("Account created! You can sign in now.");
       } else {
         const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
         if (error) throw error;
@@ -3315,7 +3315,34 @@ const AuthPage = ({ supabase }) => {
             {loading?"Please wait...":(mode==="login"?"Sign in":mode==="signup"?"Create free account":"Send reset link")}
           </button>
         </form>
-        <div style={{textAlign:"center",marginTop:20,fontSize:12,color:"var(--t3)"}}>
+        {mode!=="reset"&&(
+          <>
+            <div style={{display:"flex",alignItems:"center",gap:10,margin:"18px 0 14px"}}>
+              <div style={{flex:1,height:1,background:"var(--b2)"}}/>
+              <span style={{fontSize:10.5,color:"var(--t4)",letterSpacing:1}}>OR</span>
+              <div style={{flex:1,height:1,background:"var(--b2)"}}/>
+            </div>
+            <button
+              type="button"
+              onClick={googleLogin}
+              disabled={loading}
+              style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:10,
+                padding:"11px",borderRadius:9,border:"1px solid var(--b2)",background:"var(--s2)",
+                color:"var(--t1)",fontSize:13,fontWeight:600,cursor:"pointer",transition:"background .15s"}}
+              onMouseEnter={e=>e.currentTarget.style.background="var(--s3)"}
+              onMouseLeave={e=>e.currentTarget.style.background="var(--s2)"}
+            >
+              <svg width="17" height="17" viewBox="0 0 24 24" style={{flexShrink:0}}>
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+              </svg>
+              Continue with Google
+            </button>
+          </>
+        )}
+        <div style={{textAlign:"center",marginTop:16,fontSize:12,color:"var(--t3)"}}>
           {mode==="login"&&<>Don\'t have an account? <span style={{color:"var(--acc)",cursor:"pointer",fontWeight:600}} onClick={()=>go("signup")}>Sign up free</span></>}
           {mode==="signup"&&<>Have an account? <span style={{color:"var(--acc)",cursor:"pointer",fontWeight:600}} onClick={()=>go("login")}>Sign in</span></>}
           {mode==="reset"&&<span style={{color:"var(--acc)",cursor:"pointer",fontWeight:600}} onClick={()=>go("login")}>← Back to sign in</span>}
@@ -3459,45 +3486,7 @@ export default function App() {
     };
   }, [supabase]);
 
-  // Auth loading screen
-  if (authLoading) return (
-    <>
-      <G/>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"var(--bg)",gap:14,flexDirection:"column"}}>
-        <div style={{width:40,height:40,borderRadius:"50%",border:"2px solid var(--b2)",borderTopColor:"var(--acc)",animation:"spin .8s linear infinite"}}/>
-        <div style={{fontSize:11,color:"var(--t3)",letterSpacing:2,textTransform:"uppercase",fontWeight:600}}>Loading TradeDesk</div>
-      </div>
-    </>
-  );
-
-  // Gate: show auth page when Supabase is configured and user is not signed in
-  if (supabase && !user) return (
-    <>
-      <G/>
-      <AuthPage supabase={supabase}/>
-    </>
-  );
-
-  // ── ADMIN BYPASS ────────────────────────────────────────────────
-  // Admin account: any user with email matching VITE_ADMIN_EMAIL env var
-  // gets access to all features regardless of subscription plan.
-  // Set VITE_ADMIN_EMAIL=your@email.com in your .env file.
-  // ADMIN_EMAIL: set window.__ADMIN_EMAIL before loading app in prod, or hardcode here for local testing
-  const ADMIN_EMAIL = (typeof window !== "undefined" && window.__ADMIN_EMAIL) || "";
-  const isAdmin = user?.email && ADMIN_EMAIL && user.email === ADMIN_EMAIL;
-
-  const userPlan = isAdmin ? "pro" : (userProfile?.plan || "free");
-  const canUseAI = isAdmin || userPlan === "basic" || userPlan === "pro";
-  const userName = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Demo";
-
-  const handleSignOut = async () => {
-    try{ if(supabase) await supabase.auth.signOut(); }catch(e){}
-    showToast("Signed out");
-    window.location.reload();
-  };
-  // ══════════════════════════════════════════════════════════════
-  // ────────────────────────────────────────────────────────────
-
+  // ── ALL remaining hooks MUST come before any conditional return (React rules) ──
   const [view,setView]=useState("dashboard");
   const [selStock,setSelStock]=useState(null);
   const [analyzeStock,setAnalyzeStock]=useState(null);
@@ -3512,17 +3501,14 @@ export default function App() {
   });
   const [tags,setTagsRaw]=useState(()=>{try{return JSON.parse(localStorage.getItem("td_tags")||"{}");}catch(e){return {};}});
   const [notes,setNotesRaw]=useState(()=>{try{return JSON.parse(localStorage.getItem("td_notes")||"{}");}catch(e){return {};}});
-  // Local dev: key from localStorage. Production: proxy handles it, key not needed
   const [userGroqKey,setUserGroqKeyRaw]=useState(()=>localStorage.getItem("td_groq_key")||"");
   const setGroqKey=(k)=>{setUserGroqKeyRaw(k);k?localStorage.setItem("td_groq_key",k):localStorage.removeItem("td_groq_key");};
-  // groqKey: used directly when IS_LOCAL, ignored on production (proxy handles it)
   const groqKey = IS_LOCAL ? (userGroqKey||"") : "proxy";
   const [aiProvider,setAiProvider]=useState("groq");
   const [toast,setToast]=useState(null);
   const [totalCharges,setTotalChargesRaw]=useState(()=>{
     try{return parseFloat(localStorage.getItem("td_charges")||"0");}catch(e){return 0;}
   });
-
   // Persist helpers
   const setTotalCharges=(v)=>{setTotalChargesRaw(v);localStorage.setItem("td_charges",String(v));};
   const setTags=(fn)=>setTagsRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;localStorage.setItem("td_tags",JSON.stringify(next));return next;});
@@ -3600,6 +3586,40 @@ export default function App() {
   const overall=useMemo(()=>buildOverall(trades, totalCharges),[trades, totalCharges]);
   const stockStats=useMemo(()=>buildStockStats(trades.filter(t=>!t.open)),[trades]);
   const equityCurve=useMemo(()=>buildEquityCurve(trades),[trades]);
+
+  // ── Now safe to do conditional returns — all hooks declared above ──
+
+  if (authLoading) return (
+    <>
+      <G/>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"var(--bg)",gap:14,flexDirection:"column"}}>
+        <div style={{width:40,height:40,borderRadius:"50%",border:"2px solid var(--b2)",borderTopColor:"var(--acc)",animation:"spin .8s linear infinite"}}/>
+        <div style={{fontSize:11,color:"var(--t3)",letterSpacing:2,textTransform:"uppercase",fontWeight:600}}>Loading TradeDesk</div>
+      </div>
+    </>
+  );
+
+  // Gate: show auth page when Supabase is configured and user is not signed in
+  if (supabase && !user) return (
+    <>
+      <G/>
+      <AuthPage supabase={supabase}/>
+    </>
+  );
+
+  // ── Derived values (safe after hooks + conditional returns) ──
+  const ADMIN_EMAIL = (typeof window !== "undefined" && window.__ADMIN_EMAIL) || "";
+  const isAdmin = user?.email && ADMIN_EMAIL && user.email === ADMIN_EMAIL;
+  const userPlan = isAdmin ? "pro" : (userProfile?.plan || "free");
+  const canUseAI = isAdmin || userPlan === "basic" || userPlan === "pro";
+  const userName = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Demo";
+
+  const handleSignOut = async () => {
+    try{ if(supabase) await supabase.auth.signOut(); }catch(e){}
+    showToast("Signed out");
+    window.location.reload();
+  };
+
 
   const NAV=[
     {id:"dashboard",label:"Dashboard",icon:"dash",key:"1"},
