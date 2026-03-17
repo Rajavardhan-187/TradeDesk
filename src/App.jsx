@@ -3295,19 +3295,7 @@ const AuthPage = ({ supabase }) => {
         </div>
         {error&&<div style={{background:"var(--r-dim)",border:"1px solid rgba(244,63,94,.25)",borderRadius:8,padding:"10px 14px",fontSize:11.5,color:"var(--r)",marginBottom:16,lineHeight:1.6}}>{error}</div>}
         {success&&<div style={{background:"var(--g-dim)",border:"1px solid rgba(34,211,160,.2)",borderRadius:8,padding:"10px 14px",fontSize:11.5,color:"var(--g)",marginBottom:16,lineHeight:1.6}}>{success}</div>}
-        {mode!=="reset"&&(
-          <>
-            <button onClick={googleLogin} disabled={loading} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:10,background:"var(--s2)",border:"1px solid var(--b2)",borderRadius:9,padding:"10px 16px",color:"var(--t1)",fontSize:12,fontFamily:"Inter,sans-serif",cursor:"pointer",marginBottom:16,transition:"all .15s",fontWeight:600}}>
-              <svg width="18" height="18" viewBox="0 0 18 18" style={{flexShrink:0}}><path d="M16.51 8H8.98v3h4.3c-.18 1-.74 1.48-1.6 2.04v2.01h2.6a7.8 7.8 0 0 0 2.38-5.88c0-.57-.05-.66-.15-1.18z" fill="#4285F4"/><path d="M8.98 17c2.16 0 3.97-.72 5.3-1.94l-2.6-2.04a4.8 4.8 0 0 1-7.18-2.54H1.83v2.07A8 8 0 0 0 8.98 17z" fill="#34A853"/><path d="M4.5 10.52a4.8 4.8 0 0 1 0-3.04V5.41H1.83a8 8 0 0 0 0 7.18l2.67-2.07z" fill="#FBBC05"/><path d="M8.98 4.18c1.17 0 2.23.4 3.06 1.2l2.3-2.3A8 8 0 0 0 1.83 5.4L4.5 7.49a4.77 4.77 0 0 1 4.48-3.3z" fill="#EA4335"/></svg>
-              Continue with Google
-            </button>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
-              <div style={{flex:1,height:"1px",background:"var(--b1)"}}/>
-              <span style={{fontSize:10,color:"var(--t4)"}}>or email</span>
-              <div style={{flex:1,height:"1px",background:"var(--b1)"}}/>
-            </div>
-          </>
-        )}
+
         <form onSubmit={submit} style={{display:"flex",flexDirection:"column",gap:13}}>
           {mode==="signup"&&<div><div style={{fontSize:10,color:"var(--t3)",letterSpacing:1,marginBottom:5,textTransform:"uppercase",fontWeight:600}}>Full name</div><input className="inp" type="text" placeholder="Your name" value={name} onChange={e=>setName(e.target.value)} required autoComplete="name"/></div>}
           <div>
@@ -3418,75 +3406,60 @@ export default function App() {
 
   useEffect(() => {
     if (!supabase) {
-      // No Supabase (local dev without config) — run as local-only, no login
       setAuthLoading(false);
       return;
     }
+
+    let settled = false;
+
+    const finish = (u) => {
+      if (!settled) {
+        settled = true;
+        setAuthLoading(false);
+      }
+    };
+
+    // Fallback: never hang forever — force-unblock after 4 seconds
+    const timeout = setTimeout(() => finish(), 4000);
+
     // Get existing session on mount
     supabase.auth.getSession().then(async ({data}) => {
       const u = data.session?.user ?? null;
       setUser(u);
       if (u) {
-        const {data: prof} = await supabase
-          .from("profiles").select("*").eq("id", u.id).single();
-        setUserProfile(prof);
-        // Sync localStorage data to Supabase on first login
+        try {
+          const {data: prof} = await supabase
+            .from("profiles").select("*").eq("id", u.id).single();
+          setUserProfile(prof);
+        } catch(e) {}
         syncLocalDataToSupabase(supabase, u.id);
       }
-      setAuthLoading(false);
-    });
+      finish(u);
+    }).catch(() => finish());
+
     // Listen for auth changes (login / logout / token refresh)
     const {data:{subscription}} = supabase.auth.onAuthStateChange(async (_e, session) => {
       const u = session?.user ?? null;
       setUser(u);
       if (u) {
-        const {data: prof} = await supabase
-          .from("profiles").select("*").eq("id", u.id).single();
-        setUserProfile(prof);
+        try {
+          const {data: prof} = await supabase
+            .from("profiles").select("*").eq("id", u.id).single();
+          setUserProfile(prof);
+        } catch(e) {}
       }
+      // Also unblock loading in case getSession resolved with no session
+      // but onAuthStateChange fires after the redirect with the real session
+      finish(u);
     });
-    return () => subscription.unsubscribe();
+
+    return () => {
+      clearTimeout(timeout);
+      subscription.unsubscribe();
+    };
   }, [supabase]);
 
-  // Auth loading screen
-  if (authLoading) return (
-    <>
-      <G/>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"var(--bg)",gap:14,flexDirection:"column"}}>
-        <div style={{width:40,height:40,borderRadius:"50%",border:"2px solid var(--b2)",borderTopColor:"var(--acc)",animation:"spin .8s linear infinite"}}/>
-        <div style={{fontSize:11,color:"var(--t3)",letterSpacing:2,textTransform:"uppercase",fontWeight:600}}>Loading TradeDesk</div>
-      </div>
-    </>
-  );
-
-  // Gate: show auth page when Supabase is configured and user is not signed in
-  if (supabase && !user) return (
-    <>
-      <G/>
-      <AuthPage supabase={supabase}/>
-    </>
-  );
-
-  // ── ADMIN BYPASS ────────────────────────────────────────────────
-  // Admin account: any user with email matching VITE_ADMIN_EMAIL env var
-  // gets access to all features regardless of subscription plan.
-  // Set VITE_ADMIN_EMAIL=your@email.com in your .env file.
-  // ADMIN_EMAIL: set window.__ADMIN_EMAIL before loading app in prod, or hardcode here for local testing
-  const ADMIN_EMAIL = (typeof window !== "undefined" && window.__ADMIN_EMAIL) || "";
-  const isAdmin = user?.email && ADMIN_EMAIL && user.email === ADMIN_EMAIL;
-
-  const userPlan = isAdmin ? "pro" : (userProfile?.plan || "free");
-  const canUseAI = isAdmin || userPlan === "basic" || userPlan === "pro";
-  const userName = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Demo";
-
-  const handleSignOut = async () => {
-    try{ if(supabase) await supabase.auth.signOut(); }catch(e){}
-    showToast("Signed out");
-    window.location.reload();
-  };
-  // ══════════════════════════════════════════════════════════════
-  // ────────────────────────────────────────────────────────────
-
+  // ── ALL remaining hooks MUST come before any conditional return (React rules) ──
   const [view,setView]=useState("dashboard");
   const [selStock,setSelStock]=useState(null);
   const [analyzeStock,setAnalyzeStock]=useState(null);
@@ -3501,17 +3474,14 @@ export default function App() {
   });
   const [tags,setTagsRaw]=useState(()=>{try{return JSON.parse(localStorage.getItem("td_tags")||"{}");}catch(e){return {};}});
   const [notes,setNotesRaw]=useState(()=>{try{return JSON.parse(localStorage.getItem("td_notes")||"{}");}catch(e){return {};}});
-  // Local dev: key from localStorage. Production: proxy handles it, key not needed
   const [userGroqKey,setUserGroqKeyRaw]=useState(()=>localStorage.getItem("td_groq_key")||"");
   const setGroqKey=(k)=>{setUserGroqKeyRaw(k);k?localStorage.setItem("td_groq_key",k):localStorage.removeItem("td_groq_key");};
-  // groqKey: used directly when IS_LOCAL, ignored on production (proxy handles it)
   const groqKey = IS_LOCAL ? (userGroqKey||"") : "proxy";
   const [aiProvider,setAiProvider]=useState("groq");
   const [toast,setToast]=useState(null);
   const [totalCharges,setTotalChargesRaw]=useState(()=>{
     try{return parseFloat(localStorage.getItem("td_charges")||"0");}catch(e){return 0;}
   });
-
   // Persist helpers
   const setTotalCharges=(v)=>{setTotalChargesRaw(v);localStorage.setItem("td_charges",String(v));};
   const setTags=(fn)=>setTagsRaw(prev=>{const next=typeof fn==="function"?fn(prev):fn;localStorage.setItem("td_tags",JSON.stringify(next));return next;});
@@ -3589,6 +3559,40 @@ export default function App() {
   const overall=useMemo(()=>buildOverall(trades, totalCharges),[trades, totalCharges]);
   const stockStats=useMemo(()=>buildStockStats(trades.filter(t=>!t.open)),[trades]);
   const equityCurve=useMemo(()=>buildEquityCurve(trades),[trades]);
+
+  // ── Now safe to do conditional returns — all hooks declared above ──
+
+  if (authLoading) return (
+    <>
+      <G/>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"var(--bg)",gap:14,flexDirection:"column"}}>
+        <div style={{width:40,height:40,borderRadius:"50%",border:"2px solid var(--b2)",borderTopColor:"var(--acc)",animation:"spin .8s linear infinite"}}/>
+        <div style={{fontSize:11,color:"var(--t3)",letterSpacing:2,textTransform:"uppercase",fontWeight:600}}>Loading TradeDesk</div>
+      </div>
+    </>
+  );
+
+  // Gate: show auth page when Supabase is configured and user is not signed in
+  if (supabase && !user) return (
+    <>
+      <G/>
+      <AuthPage supabase={supabase}/>
+    </>
+  );
+
+  // ── Derived values (safe after hooks + conditional returns) ──
+  const ADMIN_EMAIL = (typeof window !== "undefined" && window.__ADMIN_EMAIL) || "";
+  const isAdmin = user?.email && ADMIN_EMAIL && user.email === ADMIN_EMAIL;
+  const userPlan = isAdmin ? "pro" : (userProfile?.plan || "free");
+  const canUseAI = isAdmin || userPlan === "basic" || userPlan === "pro";
+  const userName = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Demo";
+
+  const handleSignOut = async () => {
+    try{ if(supabase) await supabase.auth.signOut(); }catch(e){}
+    showToast("Signed out");
+    window.location.reload();
+  };
+
 
   const NAV=[
     {id:"dashboard",label:"Dashboard",icon:"dash",key:"1"},
