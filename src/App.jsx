@@ -2711,11 +2711,21 @@ const UploadView = ({onImport}) => {
 
   const handleFile=useCallback((f)=>{
     if(!f) return;
+    const MAX_SIZE = 10 * 1024 * 1024;
+    const ext = f.name.toLowerCase().split('.').pop();
+    if(!['xlsx','xls','csv'].includes(ext)){
+      setStatus({error:true,name:f.name,msg:"Only .xlsx, .xls and .csv files are supported."});
+      return;
+    }
+    if(f.size > MAX_SIZE){
+      setStatus({error:true,name:f.name,msg:"File too large. Maximum 10MB allowed."});
+      return;
+    }
     setStatus({loading:true,name:f.name});
     const reader=new FileReader();
     reader.onload=e=>{
       try{
-        const data=XLSX.read(e.target.result,{type:"array"});
+        const data=XLSX.read(e.target.result,{type:"array",cellFormula:false,cellHTML:false});
 
         // Detect file type by sheet names / title row
         const sheetNames = data.SheetNames.map(s=>s.toLowerCase());
